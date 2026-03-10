@@ -9,10 +9,10 @@ import webbrowser
 import time
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 import pystray
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 import psutil
 
 # Configuration
@@ -115,15 +115,19 @@ class TrayIcon:
         
         # Draw "OC" text
         try:
-            from PIL import ImageFont
             font = ImageFont.truetype("arial.ttf", 20)
         except:
             font = ImageFont.load_default()
         
         text = "OC"
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
+        # Use textsize for older Pillow versions
+        try:
+            text_width, text_height = draw.textsize(text, font=font)
+        except AttributeError:
+            # Fallback for Pillow >= 10.0
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
         
         x = (ICON_SIZE - text_width) // 2
         y = (ICON_SIZE - text_height) // 2 - 2
@@ -148,42 +152,36 @@ class TrayIcon:
         """Create context menu"""
         return pystray.Menu(
             pystray.MenuItem(
-                lambda: f"Status: {self.manager.get_status()}",
-                lambda: None,
+                lambda item: f"Status: {self.manager.get_status()}",
+                lambda item: None,
                 enabled=False
             ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Open Dashboard", self._on_open_dashboard),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Start", self._on_start, visible=self._show_start),
-            pystray.MenuItem("Stop", self._on_stop, visible=self._show_stop),
+            pystray.MenuItem("Start", self._on_start, visible=lambda item: not self.manager.is_gateway_running()),
+            pystray.MenuItem("Stop", self._on_stop, visible=lambda item: self.manager.is_gateway_running()),
             pystray.MenuItem("Restart", self._on_restart),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Exit", self._on_exit),
         )
     
-    def _show_start(self) -> bool:
-        return not self.manager.is_gateway_running()
-    
-    def _show_stop(self) -> bool:
-        return self.manager.is_gateway_running()
-    
-    def _on_open_dashboard(self):
+    def _on_open_dashboard(self, item=None):
         self.manager.open_dashboard()
     
-    def _on_start(self):
+    def _on_start(self, item=None):
         self.manager.start_gateway()
         self.update_icon()
     
-    def _on_stop(self):
+    def _on_stop(self, item=None):
         self.manager.stop_gateway()
         self.update_icon()
     
-    def _on_restart(self):
+    def _on_restart(self, item=None):
         self.manager.restart_gateway()
         self.update_icon()
     
-    def _on_exit(self):
+    def _on_exit(self, item=None):
         self.running = False
         if self.icon:
             self.icon.stop()
